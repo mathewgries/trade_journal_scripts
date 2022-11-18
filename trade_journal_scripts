@@ -1,0 +1,137 @@
+function main() {
+  const sheetName = getSheetName()
+  const data = getRowData(sheetName)
+  data.splice(0, 2)
+  const res = setDataToObject(data)
+  const rowsToUpdate = getRowsToUpdate(res).map((x) => updateRowData(x))
+  const rowsToClear = getRowsToClear(res).map(x => clearRowData(x))
+  const rowsToInsert = getRowsToInsert(rowsToUpdate).map(x => updateRunnerData(x))
+
+
+  if (rowsToUpdate.length > 0) {
+    for (let i = 0; i < rowsToUpdate.length; i++) {
+      updateSheetRow(sheetName, rowsToUpdate[i])
+    }
+  }
+
+  if (rowsToClear.length > 0) {
+    for (let i = 0; i < rowsToClear.length; i++) {
+      updateSheetRow(sheetName, rowsToClear[i])
+    }
+  }
+
+  if (rowsToInsert.length > 0) {
+    for (let i = rowsToInsert.length - 1; i >= 0; i--) {
+      createRunnerRow(sheetName, rowsToInsert[i])
+    }
+  }
+}
+
+function createRunnerRow(sheetName, row) {
+  const rowNum = row.sheetRow
+  insertRow(sheetName, rowNum)
+  updateSheetRow(sheetName, row)
+}
+
+function insertRow(sheetName, rowNum) {
+  return SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(sheetName)
+    .insertRowsAfter(rowNum - 1, 1)
+}
+
+
+
+function getSheetName() {
+  let activeSheet = SpreadsheetApp.getActiveSheet();
+  return activeSheet.getName();
+}
+
+function getRowData(sheetName) {
+  return SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(sheetName)
+    .getDataRange()
+    .getValues()
+}
+
+function setDataToObject(data) {
+  const [headers, ...rows] = data
+  const res = rows.map((r) =>
+    headers.reduce((o, h, j) => Object.assign(o, { [h]: r[j] }), {})
+  );
+  return res.map((x, i) => ({ ...x, sheetRow: i + 4 }))
+}
+
+function getRowsToUpdate(data) {
+  return data.filter((x) => 
+    x.Check === true && 
+    x.IsOpen === true && 
+    x.ExitSize !== "" && 
+    x.ExitPrice !== "")
+}
+
+function getRowsToClear(data) {
+  return data.filter((x) => 
+    x.Check === false && 
+    x.IsOpen === false)
+}
+
+function getRowsToInsert(data) {
+  return data.filter((x) => x.ExitSize < x.EntrySize)
+}
+
+function updateRowData(row) {
+  return {
+    ...row, IsOpen: !row.IsOpen, TotalExit: row.ExitSize * row.ExitPrice,
+    ["P/L$"]: calculatePLM(row.Side, row.ExitSize, row.EntryPrice, row.ExitPrice),
+    ["P/L%"]: calculatePGL(row.Side, row.ExitSize, row.EntryPrice, row.ExitPrice)
+  }
+}
+
+function clearRowData(row) {
+  return { ...row, IsOpen: !row.IsOpen, ExitSize: "", TotalExit: "", ExitPrice: "", ["P/L$"]: "", ["P/L%"]: "" }
+}
+
+function updateRunnerData(row) {
+  const newEntrySize = row.EntrySize - row.ExitSize
+  const newTotalEntry = newEntrySize * row.EntryPrice
+  return {
+    ...row,
+    Check: false,
+    IsOpen: true,
+    EntrySize: newEntrySize,
+    ExitSize: "",
+    TotalEntry: newTotalEntry,
+    ExitPrice: "",
+    TotalExit: "",
+    ["P/L$"]: "",
+    ["P/L%"]: "",
+    sheetRow: row.sheetRow + 1
+  }
+}
+
+function calculatePLM(side, size, entry, exit) {
+  if (side === "LONG") {
+    return (size * (exit - entry)) * 100
+  } else if (side === "SHORT") {
+    return (size * (entry - exit)) * 100
+  }
+}
+
+function calculatePGL(side, size, entry, exit) {
+  if (side === "LONG") {
+    return ((exit - entry) / entry)
+  } else if (side === "SHORT") {
+    return ((entry - exit) / exit)
+  }
+}
+
+function updateSheetRow(sheetName, row) {
+  const sheetRow = row.sheetRow
+  delete row.sheetRow
+  const rowData = Object.keys(row).map(x => row[x])
+  SpreadsheetApp
+    .getActive()
+    .getSheetByName(sheetName)
+    .getRange(`A${sheetRow}:T${sheetRow}`)
+    .setValues([rowData]);
+}
