@@ -1,31 +1,174 @@
-function main() {
+const lastCol = "U"
+const errorColumn = 22
+const headerRowNum = 4
+
+function addNewRow(){
   const sheetName = getSheetName()
-  const data = getRowData(sheetName)
-  data.splice(0, 2)
-  const res = setDataToObject(data)
-  const rowsToUpdate = getRowsToUpdate(res).map((x) => updateRowData(x))
-  const rowsToClear = getRowsToClear(res).map(x => clearRowData(x))
-  const rowsToInsert = getRowsToInsert(rowsToUpdate).map(x => updateRunnerData(x))
+  const headerColumns = getHeaders(sheetName)[0]
+  const rowIndex = getNextOpenRowIndex(sheetName)
+  Logger.log(rowIndex)
+}
 
+function getNextOpenRowIndex(sheetName){
+  const lastRow = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getSheetByName(sheetName)
+    .getLastRow()
+  return lastRow + 1
+}
 
-  if (rowsToUpdate.length > 0) {
-    for (let i = 0; i < rowsToUpdate.length; i++) {
-      updateSheetRow(sheetName, rowsToUpdate[i])
+function closePosition() {
+  const sheetName = getSheetName()
+  const headerColumns = getHeaders(sheetName)[0]
+  const active_range = SpreadsheetApp.getActiveRange()
+  if (!validateRange(sheetName, active_range)) return
+  const rowIndex = active_range.getRowIndex()
+  const rangeDataArr = getRangeData(sheetName, rowIndex)
+  const rangeDataObj = setDataToObject(headerColumns, rangeDataArr, rowIndex)
+  if (!validateRangeData(sheetName, rangeDataObj)) return
+  const updatedRangeDataObj = updateRangeData(rangeDataObj)
+  updateSheetRow(sheetName, updatedRangeDataObj)
+}
+
+function getSheetName() {
+  let activeSheet = SpreadsheetApp.getActiveSheet();
+  return activeSheet.getName();
+}
+
+function getHeaders(sheetName) {
+  return SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(sheetName)
+    .getRange(`A${headerRowNum}:${lastCol}${headerRowNum}`)
+    .getValues()
+}
+
+function getRangeData(sheetName, rowIndex) {
+  return SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(sheetName)
+    .getRange(`A${rowIndex}:${lastCol}${rowIndex}`)
+    .getValues()[0]
+}
+
+function setDataToObject(headers, rangeDataArr, rowIndex) {
+  let obj = { rowIndex }
+  for (let i = 0; i < headers.length; i++) {
+    if (i < rangeDataArr.length) {
+      obj[headers[i]] = rangeDataArr[i]
+    } else {
+      break;
     }
   }
+  return obj
+}
 
-  if (rowsToClear.length > 0) {
-    for (let i = 0; i < rowsToClear.length; i++) {
-      updateSheetRow(sheetName, rowsToClear[i])
-    }
-  }
-
-  if (rowsToInsert.length > 0) {
-    for (let i = rowsToInsert.length - 1; i >= 0; i--) {
-      createRunnerRow(sheetName, rowsToInsert[i])
-    }
+function updateRangeData(row) {
+  return {
+    ...row, IsOpen: false, TotalExit: row.ExitSize * row.ExitPrice,
+    ["P/L$"]: calculatePLM(row.Side, row.ExitSize, row.EntryPrice, row.ExitPrice),
+    ["P/L%"]: calculatePGL(row.Side, row.ExitSize, row.EntryPrice, row.ExitPrice)
   }
 }
+
+function calculatePLM(side, size, entry, exit) {
+  if (side === "LONG") {
+    return (size * (exit - entry)) * 100
+  } else if (side === "SHORT") {
+    return (size * (entry - exit)) * 100
+  }
+}
+
+function calculatePGL(side, size, entry, exit) {
+  if (side === "LONG") {
+    return ((exit - entry) / entry)
+  } else if (side === "SHORT") {
+    return ((entry - exit) / exit)
+  }
+}
+
+function updateSheetRow(sheetName, randDataObj) {
+  const rowIndex = randDataObj.rowIndex
+  delete randDataObj.rowIndex
+  const rangeDataArr = Object.keys(randDataObj).map(x => randDataObj[x])
+  SpreadsheetApp
+    .getActive()
+    .getSheetByName(sheetName)
+    .getRange(`A${rowIndex}:${lastCol}${rowIndex}`)
+    .setValues([rangeDataArr]);
+}
+
+/**************** Validation and error handling ****************/
+
+function validateRange(sheetName, active_range) {
+  let valid = true
+  const numRows = active_range.getNumRows()
+  if (numRows < 1) {
+    valid = false
+  }
+  if (numRows > 1) {
+    valid = false
+    sendErrorMessage(sheetName, headerRowNum + 1,
+      "Select one row or cell at a time"
+    )
+  }
+  if (active_range.getRowIndex() === headerRowNum) {
+    valid = false
+    sendErrorMessage(sheetName, headerRowNum + 1,
+      "Highlight the row to update..."
+    )
+  }
+  return valid
+}
+
+function validateRangeData(sheetName, data) {
+  const rowIndex = data.rowIndex
+
+  if (!data.RunUpdate) {
+    sendErrorMessage(sheetName, rowIndex, "Not selected for update")
+    return false
+  }
+
+  const exitSize = data.ExitSize
+  const entrySize = data.EntrySize
+  if (exitSize === 0 || exitSize === "" || exitSize > entrySize) {
+    sendErrorMessage(sheetName, rowIndex, "ExitSize invalid...")
+    return false
+  }
+
+  const contType = data.ConType.toUpperCase()
+  if (contType !== "CALL" && contType !== "PUT") {
+    sendErrorMessage(sheetName, rowIndex, "ConType must be CALL or PUT")
+    return false
+  }
+
+  const side = data.Side.toUpperCase()
+  if (side !== "LONG" && side !== "SHORT") {
+    sendErrorMessage(sheetName, rowIndex, "Side must be LONG or SHORT")
+    return false
+  }
+
+  const entryPrice = data.EntryPrice
+  if (entryPrice === "") {
+    sendErrorMessage(sheetName, rowIndex, "EntryPrice is invalid...")
+    return false
+  }
+
+  const exitPrice = data.ExitPrice
+  if (exitPrice === "") {
+    sendErrorMessage(sheetName, rowIndex, "ExitPrice is invalid...")
+    return false
+  }
+  return true
+}
+
+function sendErrorMessage(sheetName, rowIndex, message) {
+  SpreadsheetApp
+    .getActive()
+    .getSheetByName(sheetName)
+    .getRange(rowIndex, errorColumn)
+    .setValue(message);
+}
+
+/**************** END: Validation and error handling ****************/
 
 function createRunnerRow(sheetName, row) {
   const rowNum = row.sheetRow
@@ -39,13 +182,6 @@ function insertRow(sheetName, rowNum) {
     .insertRowsAfter(rowNum - 1, 1)
 }
 
-
-
-function getSheetName() {
-  let activeSheet = SpreadsheetApp.getActiveSheet();
-  return activeSheet.getName();
-}
-
 function getRowData(sheetName) {
   return SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName(sheetName)
@@ -53,38 +189,22 @@ function getRowData(sheetName) {
     .getValues()
 }
 
-function setDataToObject(data) {
-  const [headers, ...rows] = data
-  const res = rows.map((r) =>
-    headers.reduce((o, h, j) => Object.assign(o, { [h]: r[j] }), {})
-  );
-  return res.map((x, i) => ({ ...x, sheetRow: i + 4 }))
-}
-
 function getRowsToUpdate(data) {
-  return data.filter((x) => 
-    x.Check === true && 
-    x.IsOpen === true && 
-    x.ExitSize !== "" && 
+  return data.filter((x) =>
+    x.Check === true &&
+    x.IsOpen === true &&
+    x.ExitSize !== "" &&
     x.ExitPrice !== "")
 }
 
 function getRowsToClear(data) {
-  return data.filter((x) => 
-    x.Check === false && 
+  return data.filter((x) =>
+    x.Check === false &&
     x.IsOpen === false)
 }
 
 function getRowsToInsert(data) {
   return data.filter((x) => x.ExitSize < x.EntrySize)
-}
-
-function updateRowData(row) {
-  return {
-    ...row, IsOpen: !row.IsOpen, TotalExit: row.ExitSize * row.ExitPrice,
-    ["P/L$"]: calculatePLM(row.Side, row.ExitSize, row.EntryPrice, row.ExitPrice),
-    ["P/L%"]: calculatePGL(row.Side, row.ExitSize, row.EntryPrice, row.ExitPrice)
-  }
 }
 
 function clearRowData(row) {
@@ -107,31 +227,4 @@ function updateRunnerData(row) {
     ["P/L%"]: "",
     sheetRow: row.sheetRow + 1
   }
-}
-
-function calculatePLM(side, size, entry, exit) {
-  if (side === "LONG") {
-    return (size * (exit - entry)) * 100
-  } else if (side === "SHORT") {
-    return (size * (entry - exit)) * 100
-  }
-}
-
-function calculatePGL(side, size, entry, exit) {
-  if (side === "LONG") {
-    return ((exit - entry) / entry)
-  } else if (side === "SHORT") {
-    return ((entry - exit) / exit)
-  }
-}
-
-function updateSheetRow(sheetName, row) {
-  const sheetRow = row.sheetRow
-  delete row.sheetRow
-  const rowData = Object.keys(row).map(x => row[x])
-  SpreadsheetApp
-    .getActive()
-    .getSheetByName(sheetName)
-    .getRange(`A${sheetRow}:T${sheetRow}`)
-    .setValues([rowData]);
 }
