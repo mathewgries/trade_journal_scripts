@@ -1,46 +1,12 @@
-const lastCol = "U"
+const lastColAlpha = "V"
+const lastColNum = 21
 const newRowCol = "C"
-const errorColumn = 22
+const errorColumn = 23
 const headerRowNum = 4
 
-function addNewRow(){
-  const sheetName = getSheetName()
-  const headerColumns = getHeaders(sheetName)[0]
-  const rowIndex = getNextOpenRowIndex(sheetName)
-  insertRow(sheetName, rowIndex)
-  const defaultDataObj = {IsOpen: true, Date: new Date(), rowIndex}
-  addCheckbox(sheetName, rowIndex)
-  updateSheetRow(sheetName, "B", newRowCol, defaultDataObj)
-  setFormulaToCell(sheetName, rowIndex, 16, `=SUM(I${rowIndex} * N${rowIndex})`)
-  setFormulaToCell(sheetName, rowIndex, 17, `=SUM(J${rowIndex} * O${rowIndex})`)
-  Logger.log(rowIndex)
-}
+/**************** Button Event Functions ****************/
 
-function setFormulaToCell(sheetName, rowIndex, column, formula){
-  SpreadsheetApp
-    .getActiveSpreadsheet()
-    .getSheetByName(sheetName)
-    .getRange(rowIndex, column)
-    .setFormula(formula)
-}
-
-function getNextOpenRowIndex(sheetName){
-  const lastRow = SpreadsheetApp
-    .getActiveSpreadsheet()
-    .getSheetByName(sheetName)
-    .getLastRow()
-  return lastRow + 1
-}
-
-function addCheckbox(sheetName, rowIndex){
-  SpreadsheetApp
-    .getActive()
-    .getSheetByName(sheetName)
-    .getRange(rowIndex, 1)
-    .insertCheckboxes()
-}
-
-function closePosition() {
+function updatePosition() {
   const sheetName = getSheetName()
   const headerColumns = getHeaders(sheetName)[0]
   const active_range = SpreadsheetApp.getActiveRange()
@@ -50,10 +16,68 @@ function closePosition() {
   const rangeDataObj = setDataToObject(headerColumns, rangeDataArr, rowIndex)
   if (!validateRangeData(sheetName, rangeDataObj)) return
   const updatedRangeDataObj = updateRangeData(rangeDataObj)
-  updateSheetRow(sheetName, "A", lastCol, updatedRangeDataObj)
-  setFormulaToCell(sheetName, rowIndex, 16, `=SUM(I${rowIndex} * N${rowIndex})`)
-  setFormulaToCell(sheetName, rowIndex, 17, `=SUM(J${rowIndex} * O${rowIndex})`)
+  updateSheetRow(sheetName, "A", lastColAlpha, updatedRangeDataObj)
+  addFormulasToRow(sheetName, rowIndex)
 }
+
+function addNewRow() {
+  const sheetName = getSheetName()
+  const headerColumns = getHeaders(sheetName)[0]
+  const rowIndex = getNextOpenRowIndex(sheetName)
+  insertRow(sheetName, rowIndex)
+  const defaultDataObj = { IsOpen: true, Date: new Date(), rowIndex }
+  addCheckbox(sheetName, rowIndex)
+  updateSheetRow(sheetName, "B", newRowCol, defaultDataObj)
+  addFormulasToRow(sheetName, rowIndex)
+}
+
+function addRunnerRow() {
+  const sheetName = getSheetName()
+  const headerColumns = getHeaders(sheetName)[0]
+  const active_range = SpreadsheetApp.getActiveRange()
+  if (!validateRange(sheetName, active_range)) return
+  const rowIndex = active_range.getRowIndex()
+  const rangeDataArr = getRangeData(sheetName, rowIndex)
+  const rangeDataObj = setDataToObject(headerColumns, rangeDataArr, rowIndex)
+  if (!validateRangeData(sheetName, rangeDataObj)) return
+  if(!validateDataForRunnerRow(sheetName, rangeDataObj)) return
+  createRunnerRow(sheetName, rangeDataObj)
+  
+}
+
+/**************** END: Button Event Functions ****************/
+
+/**************** Runner Row Specific Functions ****************/
+
+function createRunnerRow(sheetName, rangeDataObj) {
+  const rowIndex = rangeDataObj.rowIndex
+  insertRow(sheetName, rowIndex)
+  const runnerDataObj = updateRunnerData(rangeDataObj) 
+  updateSheetRow(sheetName, "A", lastColAlpha, runnerDataObj)
+  addFormulasToRow(sheetName, rowIndex)
+}
+
+function updateRunnerData(rangeDataObj) {
+  const newEntrySize = rangeDataObj.EntrySize - rangeDataObj.ExitSize
+  const newTotalEntry = newEntrySize * rangeDataObj.EntryPrice
+  return {
+    ...rangeDataObj,
+    RunUpdate: false,
+    IsOpen: true,
+    EntrySize: newEntrySize,
+    ExitSize: "",
+    TotalEntry: newTotalEntry,
+    ExitPrice: "",
+    TotalExit: "",
+    ["P/L$"]: "",
+    ["P/L%"]: "",
+    rowIndex: rangeDataObj.rowIndex + 1
+  }
+}
+
+/**************** END: Runner Row Specific Functions ****************/
+
+/**************** Main Operation Functions ****************/
 
 function getSheetName() {
   let activeSheet = SpreadsheetApp.getActiveSheet();
@@ -63,14 +87,14 @@ function getSheetName() {
 function getHeaders(sheetName) {
   return SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName(sheetName)
-    .getRange(`A${headerRowNum}:${lastCol}${headerRowNum}`)
+    .getRange(`A${headerRowNum}:${lastColAlpha}${headerRowNum}`)
     .getValues()
 }
 
 function getRangeData(sheetName, rowIndex) {
   return SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName(sheetName)
-    .getRange(`A${rowIndex}:${lastCol}${rowIndex}`)
+    .getRange(`A${rowIndex}:${lastColAlpha}${rowIndex}`)
     .getValues()[0]
 }
 
@@ -94,6 +118,42 @@ function updateRangeData(row) {
   }
 }
 
+function updateSheetRow(sheetName, firstCol, lastCol, rangeDataObj) {
+  const rowIndex = rangeDataObj.rowIndex
+  delete rangeDataObj.rowIndex
+  const rangeDataArr = Object.keys(rangeDataObj).map(x => rangeDataObj[x])
+  SpreadsheetApp
+    .getActive()
+    .getSheetByName(sheetName)
+    .getRange(`${firstCol}${rowIndex}:${lastCol}${rowIndex}`)
+    .setValues([rangeDataArr])
+}
+
+function addFormulasToRow(sheetName, rowIndex){
+  setFormulaToCell(sheetName, rowIndex, 16, `=SUM(I${rowIndex} * N${rowIndex})`)
+  setFormulaToCell(sheetName, rowIndex, 17, `=SUM(J${rowIndex} * O${rowIndex})`)
+}
+
+/**************** END: Main Operation Functions ****************/
+
+/**************** Helper Functions ****************/
+
+function getNextOpenRowIndex(sheetName) {
+  const lastRow = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getSheetByName(sheetName)
+    .getLastRow()
+  return lastRow + 1
+}
+
+function addCheckbox(sheetName, rowIndex) {
+  SpreadsheetApp
+    .getActive()
+    .getSheetByName(sheetName)
+    .getRange(rowIndex, 1)
+    .insertCheckboxes()
+}
+
 function calculatePLM(side, size, entry, exit) {
   if (side === "LONG") {
     return (size * (exit - entry)) * 100
@@ -110,35 +170,39 @@ function calculatePGL(side, size, entry, exit) {
   }
 }
 
-function updateSheetRow(sheetName,firstCol, lastCol, rangeDataObj) {
-  const rowIndex = rangeDataObj.rowIndex
-  delete rangeDataObj.rowIndex
-  const rangeDataArr = Object.keys(rangeDataObj).map(x => rangeDataObj[x])
+function setFormulaToCell(sheetName, rowIndex, column, formula) {
   SpreadsheetApp
-    .getActive()
+    .getActiveSpreadsheet()
     .getSheetByName(sheetName)
-    .getRange(`${firstCol}${rowIndex}:${lastCol}${rowIndex}`)
-    .setValues([rangeDataArr])
+    .getRange(rowIndex, column)
+    .setFormula(formula)
 }
 
-/**************** Validation and error handling ****************/
+function insertRow(sheetName, rowIndex) {
+  return SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(sheetName)
+    .insertRowsAfter(rowIndex, 1)
+}
+
+/**************** END: Helper Functions ****************/
+
+/**************** Validation and Error handling ****************/
 
 function validateRange(sheetName, active_range) {
-  let valid = true
   const numRows = active_range.getNumRows()
+  let valid = true
+
   if (numRows < 1) {
     valid = false
-  }
-  if (numRows > 1) {
+  } else if (numRows > 1) {
     valid = false
     sendErrorMessage(sheetName, headerRowNum + 1,
       "Select one row or cell at a time"
     )
-  }
-  if (active_range.getRowIndex() === headerRowNum) {
+  } else if (active_range.getRowIndex() === headerRowNum) {
     valid = false
     sendErrorMessage(sheetName, headerRowNum + 1,
-      "Highlight the row to update..."
+      "Click any cell in the row to update..."
     )
   }
   return valid
@@ -146,43 +210,61 @@ function validateRange(sheetName, active_range) {
 
 function validateRangeData(sheetName, data) {
   const rowIndex = data.rowIndex
-
-  if (!data.RunUpdate) {
-    sendErrorMessage(sheetName, rowIndex, "Not selected for update")
-    return false
-  }
-
   const exitSize = data.ExitSize
   const entrySize = data.EntrySize
-  if (exitSize === 0 || exitSize === "" || exitSize > entrySize) {
-    sendErrorMessage(sheetName, rowIndex, "ExitSize invalid...")
-    return false
-  }
-
   const contType = data.ConType.toUpperCase()
-  if (contType !== "CALL" && contType !== "PUT") {
-    sendErrorMessage(sheetName, rowIndex, "ConType must be CALL or PUT")
-    return false
-  }
-
   const side = data.Side.toUpperCase()
-  if (side !== "LONG" && side !== "SHORT") {
-    sendErrorMessage(sheetName, rowIndex, "Side must be LONG or SHORT")
-    return false
-  }
-
-  const entryPrice = data.EntryPrice
-  if (entryPrice === "") {
-    sendErrorMessage(sheetName, rowIndex, "EntryPrice is invalid...")
-    return false
-  }
-
   const exitPrice = data.ExitPrice
-  if (exitPrice === "") {
-    sendErrorMessage(sheetName, rowIndex, "ExitPrice is invalid...")
-    return false
+  const entryPrice = data.EntryPrice
+  let valid = true
+
+  if (!data.RunUpdate) {
+    valid = false
+    sendErrorMessage(sheetName, rowIndex,
+      "Not selected for update"
+    )
+  } else if (typeof exitSize !== 'number' || exitSize === 0 || exitSize > entrySize) {
+    valid = false
+    sendErrorMessage(sheetName, rowIndex,
+      "ExitSize must be greater than 0, and equal to or less than EntrySize"
+    )
+  } else if (contType !== "CALL" && contType !== "PUT") {
+    valid = false
+    sendErrorMessage(sheetName, rowIndex,
+      "ConType must be CALL or PUT"
+    )
+  } else if (side !== "LONG" && side !== "SHORT") {
+    valid = false
+    sendErrorMessage(sheetName, rowIndex,
+      "Side must be LONG or SHORT"
+    )
+  } else if (typeof entryPrice !== 'number' || entryPrice === 0) {
+    valid = false
+    sendErrorMessage(sheetName, rowIndex,
+      "EntryPrice is inva"
+    )
+  } else if (typeof exitPrice !== 'number' || exitPrice === 0) {
+    valid = false
+    sendErrorMessage(sheetName, rowIndex, 
+      "ExitPrice is invalid..."
+    )
   }
-  return true
+  return valid
+}
+
+function validateDataForRunnerRow(sheetName, data){
+  const rowIndex = data.rowIndex
+  const exitSize = data.ExitSize
+  const entrySize = data.EntrySize
+  let valid = true
+  
+  if(exitSize === entrySize){
+    valid = false
+    sendErrorMessage(sheetName, rowIndex, 
+      "ExitSize must be less than EntrySize"
+    )
+  }
+  return valid
 }
 
 function sendErrorMessage(sheetName, rowIndex, message) {
@@ -191,65 +273,4 @@ function sendErrorMessage(sheetName, rowIndex, message) {
     .getSheetByName(sheetName)
     .getRange(rowIndex, errorColumn)
     .setValue(message);
-}
-
-/**************** END: Validation and error handling ****************/
-
-function createRunnerRow(sheetName, row) {
-  const rowNum = row.sheetRow
-  insertRow(sheetName, rowNum)
-  updateSheetRow(sheetName, lastCol, row)
-}
-
-function insertRow(sheetName, rowNum) {
-  return SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName(sheetName)
-    .insertRowsAfter(rowNum, 1)
-}
-
-function getRowData(sheetName) {
-  return SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName(sheetName)
-    .getDataRange()
-    .getValues()
-}
-
-function getRowsToUpdate(data) {
-  return data.filter((x) =>
-    x.Check === true &&
-    x.IsOpen === true &&
-    x.ExitSize !== "" &&
-    x.ExitPrice !== "")
-}
-
-function getRowsToClear(data) {
-  return data.filter((x) =>
-    x.Check === false &&
-    x.IsOpen === false)
-}
-
-function getRowsToInsert(data) {
-  return data.filter((x) => x.ExitSize < x.EntrySize)
-}
-
-function clearRowData(row) {
-  return { ...row, IsOpen: !row.IsOpen, ExitSize: "", TotalExit: "", ExitPrice: "", ["P/L$"]: "", ["P/L%"]: "" }
-}
-
-function updateRunnerData(row) {
-  const newEntrySize = row.EntrySize - row.ExitSize
-  const newTotalEntry = newEntrySize * row.EntryPrice
-  return {
-    ...row,
-    Check: false,
-    IsOpen: true,
-    EntrySize: newEntrySize,
-    ExitSize: "",
-    TotalEntry: newTotalEntry,
-    ExitPrice: "",
-    TotalExit: "",
-    ["P/L$"]: "",
-    ["P/L%"]: "",
-    sheetRow: row.sheetRow + 1
-  }
 }
